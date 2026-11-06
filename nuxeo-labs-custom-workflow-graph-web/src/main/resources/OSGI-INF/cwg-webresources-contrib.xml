@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<component name="nuxeo.labs.customworkflowgraph.webresources">
+
+  <documentation>
+    Registers the plugin's entry point with the Web UI bundle, so Web UI loads it at startup
+    (nuxeo.war/ui/config.jsp lists every resource of type "import" of the "web-ui" bundle).
+
+    The type="import" attribute is mandatory: without it, the type would be inferred from the file
+    extension ("html") and config.jsp would silently ignore the resource.
+
+    No require on org.nuxeo.web.ui here: inside a component, require names a component, and no
+    component has that name (it is the bundle symbolic name). The component would stay pending and
+    the server would refuse to start in strict mode. An append="true" contribution is never lost,
+    whatever the registration order.
+
+    @since 2025.1
+  </documentation>
+
+  <extension target="org.nuxeo.ecm.platform.WebResources" point="resources">
+    <resource name="nuxeo-labs-custom-workflow-graph-bundle.html" type="import">
+      <uri>/ui/nuxeo-labs-custom-workflow-graph/nuxeo-labs-custom-workflow-graph-bundle.html</uri>
+    </resource>
+  </extension>
+
+  <extension target="org.nuxeo.ecm.platform.WebResources" point="bundles">
+    <bundle name="web-ui">
+      <resources append="true">
+        <resource>nuxeo-labs-custom-workflow-graph-bundle.html</resource>
+      </resources>
+    </bundle>
+  </extension>
+
+</component>

@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<fragment version="1">
+
+  <require>org.nuxeo.web.ui</require>
+
+  <install>
+
+    <!-- Web UI resources (the bundle HTML, the JS modules and the vendored dagre), i18n excluded -->
+    <unzip from="${bundle.fileName}" to="/" prefix="web">
+      <include>web/nuxeo.war/**</include>
+      <exclude>web/nuxeo.war/ui/i18n/**</exclude>
+    </unzip>
+
+    <!--
+      Web UI translations have to be merged into the existing bundles, not overwritten (append merges
+      JSON files key by key). The scratch directory is ".i18n-tmp", not ".tmp": mp-install copies the
+      bundle to "<jar>.tmp" before renaming it, so a "<jar>.tmp" directory left behind by an
+      interrupted deployment would make every later install fail.
+
+      Web UI copies messages-fr.json to messages-fr-FR.json and messages-fr-CA.json (its own
+      deployment fragment, which runs first thanks to the require above), so the French labels are
+      appended to the three files.
+    -->
+    <delete path="${bundle.fileName}.i18n-tmp" />
+    <mkdir path="${bundle.fileName}.i18n-tmp" />
+    <unzip from="${bundle.fileName}" to="${bundle.fileName}.i18n-tmp">
+      <include>web/nuxeo.war/ui/i18n/**</include>
+    </unzip>
+    <append from="${bundle.fileName}.i18n-tmp/web/nuxeo.war/ui/i18n/messages.json"
+            to="nuxeo.war/ui/i18n/messages.json" addNewLine="true" />
+    <append from="${bundle.fileName}.i18n-tmp/web/nuxeo.war/ui/i18n/messages-fr.json"
+            to="nuxeo.war/ui/i18n/messages-fr.json" addNewLine="true" />
+    <append from="${bundle.fileName}.i18n-tmp/web/nuxeo.war/ui/i18n/messages-fr.json"
+            to="nuxeo.war/ui/i18n/messages-fr-FR.json" addNewLine="true" />
+    <append from="${bundle.fileName}.i18n-tmp/web/nuxeo.war/ui/i18n/messages-fr.json"
+            to="nuxeo.war/ui/i18n/messages-fr-CA.json" addNewLine="true" />
+    <delete path="${bundle.fileName}.i18n-tmp" />
+
+  </install>
+
+</fragment>

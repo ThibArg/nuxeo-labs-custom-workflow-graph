@@ -1,0 +1,211 @@
+<!doctype html>
+<!--
+(C) Copyright 2026 Hyland (http://hyland.com/) and others.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Contributors:
+    Thibaud Arguillere
+-->
+<!--
+  Development demo (NOT packaged): renders the sample workflows with the production renderer and layout,
+  without Nuxeo nor Polymer. Serve the project root over HTTP, for example:
+      python3 -m http.server 8765
+  then open http://localhost:8765/dev/demo/index.html
+  URL parameters: wf (serial, parallel, subWorkflow, contract), layout (auto, studio), theme (default, dark,
+  hyland-light, hyland-dark), dir (TB, LR), lang (en, fr), select (node id), legend (0 to collapse).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Custom Workflow Graph - demo</title>
+    <style>
+      html[data-theme='default'] {
+        --nuxeo-app-font: 'Inter', Arial, sans-serif;
+        --nuxeo-text-default: #3a3a54;
+        --nuxeo-page-background: #f5f5f5;
+        --nuxeo-box: #fff;
+        --nuxeo-primary-color: #0066ff;
+        --nuxeo-border: rgba(0, 0, 0, 0.15);
+      }
+      html[data-theme='dark'] {
+        --nuxeo-app-font: 'Inter', Arial, sans-serif;
+        --nuxeo-text-default: #fff;
+        --nuxeo-page-background: #060826;
+        --nuxeo-box: #2e2e3e;
+        --nuxeo-primary-color: #1f28bf;
+        --nuxeo-focus-ring-color: #4d9fff;
+        --nuxeo-border: rgba(0, 0, 0, 0.15);
+      }
+      html[data-theme='hyland-light'] {
+        --nuxeo-app-font: 'Noto Sans', Arial, sans-serif;
+        --nuxeo-text-default: #1a1c1e;
+        --nuxeo-page-background: #f3f2f9;
+        --nuxeo-box: #fff;
+        --nuxeo-primary-color: #5654ac;
+        --nuxeo-border: rgba(0, 0, 0, 0.15);
+      }
+      html[data-theme='hyland-dark'] {
+        --nuxeo-app-font: 'Noto Sans', Arial, sans-serif;
+        --nuxeo-text-default: #e4e0f0;
+        --nuxeo-page-background: #121316;
+        --nuxeo-box: #0a0b0c;
+        --nuxeo-primary-color: #c3c0ff;
+        --nuxeo-border: #918f9d;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: var(--nuxeo-app-font);
+        background: var(--nuxeo-box);
+        color: var(--nuxeo-text-default);
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        padding: 10px 16px;
+        font-size: 13px;
+        border-bottom: 1px solid rgba(127, 127, 127, 0.25);
+      }
+      header h1 {
+        font-size: 15px;
+        margin: 0 auto 0 0;
+      }
+      header select {
+        font: inherit;
+      }
+      #status {
+        min-width: 220px;
+        opacity: 0.75;
+      }
+      #graph {
+        flex: 1;
+        min-height: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Custom Workflow Graph</h1>
+      <span id="status"></span>
+      <label>Workflow <select id="wf"></select></label>
+      <label
+        >Theme
+        <select id="theme">
+          <option>default</option>
+          <option>dark</option>
+          <option>hyland-light</option>
+          <option>hyland-dark</option>
+        </select>
+      </label>
+      <label
+        >Language
+        <select id="lang">
+          <option>en</option>
+          <option>fr</option>
+        </select>
+      </label>
+    </header>
+    <div id="graph"></div>
+
+    <script src="samples.js"></script>
+    <script>
+      // Same order as nuxeo-labs-custom-workflow-graph-bundle.html
+      (function () {
+        const base =
+          '../../nuxeo-labs-custom-workflow-graph-web/src/main/resources/web/nuxeo.war/ui/' +
+          'nuxeo-labs-custom-workflow-graph/';
+        window.CWG_BASE = base;
+        [
+          'common/cwg-core.js',
+          'vendor/dagre.min.js',
+          'common/cwg-geometry.js',
+          'common/cwg-icons.js',
+          'common/cwg-renderer-styles.js',
+          'common/cwg-renderer.js',
+          'layouts/cwg-layout-auto.js',
+          'layouts/cwg-layout-studio.js',
+        ].forEach((f) => document.write(`<script src="${base}${f}"><\/script>`));
+      })();
+    </script>
+    <script>
+      (async function () {
+        const params = new URLSearchParams(location.search);
+        const wfName = params.get('wf') || 'serial';
+        const theme = params.get('theme') || 'default';
+        const lang = params.get('lang') || 'en';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.lang = lang;
+
+        // Translations: the plugin's own bundles (as merged into Web UI's ones at deployment)
+        const file = lang === 'en' ? 'messages.json' : `messages-${lang}.json`;
+        const messages = await fetch(`${window.CWG_BASE}../i18n/${file}`).then((r) => r.json());
+        window.nuxeo = { I18n: { language: lang, translate: (key) => messages[key] || key } };
+
+        const CWG = window.NuxeoLabs.CustomWorkflowGraph;
+        if (params.get('dir')) {
+          CWG.session.direction = params.get('dir');
+        }
+        if (params.get('layout')) {
+          CWG.session.layout = params.get('layout');
+        }
+        if (params.get('legend') === '0') {
+          CWG.session.legendCollapsed = true;
+        }
+
+        const selects = { wf: wfName, theme, lang };
+        const wfSelect = document.getElementById('wf');
+        Object.keys(window.CWG_SAMPLES).forEach((k) => {
+          const opt = document.createElement('option');
+          opt.value = k;
+          opt.textContent = window.CWG_SAMPLES[k].label;
+          wfSelect.appendChild(opt);
+        });
+        Object.keys(selects).forEach((id) => {
+          const s = document.getElementById(id);
+          s.value = selects[id];
+          s.addEventListener('change', () => {
+            params.set(id, s.value);
+            location.search = params.toString();
+          });
+        });
+
+        const status = document.getElementById('status');
+        const renderer = new CWG.Renderer(document.getElementById('graph'), {
+          selectionInset: 0,
+          onSelect(selection) {
+            status.textContent = selection
+              ? `${selection.node.title}: ${selection.outgoing.length} outgoing, ${selection.incoming.length} incoming`
+              : '';
+          },
+        });
+        window.renderer = renderer;
+        await CWG.fontsReady();
+        renderer.setGraph(window.CWG_SAMPLES[wfName].graph);
+        if (params.get('select')) {
+          renderer.select(params.get('select'));
+        }
+        document.body.dataset.ready = 'true';
+      })().catch((e) => {
+        console.error(e);
+        document.body.dataset.error = String(e && e.stack ? e.stack : e);
+      });
+    </script>
+  </body>
+</html>

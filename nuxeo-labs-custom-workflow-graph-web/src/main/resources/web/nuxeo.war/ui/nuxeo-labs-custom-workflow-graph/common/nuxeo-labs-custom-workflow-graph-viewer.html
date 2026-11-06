@@ -1,0 +1,830 @@
+<!--
+(C) Copyright 2026 Hyland (http://hyland.com/) and others.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Contributors:
+    Thibaud Arguillere
+-->
+
+<!--
+  `nuxeo-labs-custom-workflow-graph-viewer`: loads a running workflow (graph, workflow, open tasks) with the
+  standard REST API, draws it with CWG.Renderer and shows the details of the selected step.
+
+  Only uses existing endpoints:
+    GET /api/v1/workflow/{id}/graph                      the graph (required)
+    GET /api/v1/workflow/{id}         fetch-workflow: initiator     the header (optional)
+    GET /api/v1/task?workflowInstanceId={id}  fetch-task: actors    the open tasks (optional)
+  The two optional calls may fail (permissions): the viewer then simply shows less.
+
+  Usable on its own (e.g. in a document tab):
+    <nuxeo-labs-custom-workflow-graph-viewer id="viewer"></nuxeo-labs-custom-workflow-graph-viewer>
+    this.$.viewer.load(workflowId);
+
+  @since 2025.1
+-->
+<dom-module id="nuxeo-labs-custom-workflow-graph-viewer">
+  <template>
+    <style>
+      :host {
+        display: block;
+        position: relative;
+        min-height: 320px;
+        overflow: hidden;
+      }
+
+      :host([hidden]) {
+        display: none;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      #canvas {
+        position: absolute;
+        inset: 0;
+      }
+
+      .loading {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: var(--cwg-bg);
+        color: var(--cwg-text-muted);
+        font-size: 14px;
+      }
+
+      .loading[hidden] {
+        display: none;
+      }
+
+      .spinner {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 3px solid color-mix(in srgb, var(--cwg-accent) 20%, transparent);
+        border-top-color: var(--cwg-accent);
+        animation: cwg-spin 0.8s linear infinite;
+      }
+
+      @keyframes cwg-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ==================== Details panel ==================== */
+
+      .details {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        bottom: 12px;
+        z-index: 4;
+        width: 336px;
+        max-width: calc(100% - 24px);
+        display: flex;
+        flex-direction: column;
+        border-radius: 14px;
+        border: 1px solid var(--cwg-card-border);
+        background: var(--cwg-card-bg);
+        color: var(--cwg-text);
+        box-shadow: var(--cwg-shadow-hover);
+        font-family: var(--cwg-font);
+        font-size: 13px;
+        overflow: hidden;
+      }
+
+      .details[hidden] {
+        display: none;
+      }
+
+      .details-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 16px 12px 12px 16px;
+        border-bottom: 1px solid var(--cwg-card-border);
+      }
+
+      .kind-icon {
+        --cwg-kind: var(--cwg-color-step);
+        flex: 0 0 36px;
+        width: 36px;
+        height: 36px;
+        padding: 8px;
+        border-radius: 10px;
+        box-sizing: border-box;
+        color: var(--cwg-kind);
+        background: color-mix(in srgb, var(--cwg-kind) 14%, var(--cwg-card-bg));
+      }
+
+      .kind-start {
+        --cwg-kind: var(--cwg-color-start);
+      }
+      .kind-end {
+        --cwg-kind: var(--cwg-color-end);
+      }
+      .kind-multiTask {
+        --cwg-kind: var(--cwg-color-multi);
+      }
+      .kind-subWorkflow {
+        --cwg-kind: var(--cwg-color-sub);
+      }
+      .kind-fork,
+      .kind-merge {
+        --cwg-kind: var(--cwg-color-gateway);
+      }
+
+      nuxeo-labs-cwg-icon {
+        display: block;
+        width: 20px;
+        height: 20px;
+      }
+
+      .details-titles {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .details-kind {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--cwg-text-muted);
+      }
+
+      .details-titles h3 {
+        margin: 2px 0 0;
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+      }
+
+      .icon-button {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: 0 0 32px;
+        width: 32px;
+        height: 32px;
+        margin: 0;
+        padding: 6px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--cwg-text);
+        cursor: pointer;
+      }
+
+      .icon-button:hover {
+        background: color-mix(in srgb, var(--cwg-text) 9%, var(--cwg-card-bg));
+      }
+
+      .icon-button:focus-visible,
+      .link-row:focus-visible {
+        outline: 2px solid var(--cwg-accent);
+        outline-offset: 1px;
+      }
+
+      .details-body {
+        flex: 1;
+        overflow: auto;
+        padding: 4px 16px 16px;
+      }
+
+      .state-chip {
+        display: inline-flex;
+        align-items: center;
+        height: 22px;
+        margin-top: 12px;
+        padding: 0 10px;
+        border-radius: 11px;
+        font-size: 11px;
+        font-weight: 600;
+        border: 1px solid var(--cwg-card-border);
+        color: var(--cwg-text-muted);
+      }
+
+      .state-chip.current {
+        border-color: color-mix(in srgb, var(--cwg-current) 60%, var(--cwg-card-bg));
+        background: color-mix(in srgb, var(--cwg-current) 12%, var(--cwg-card-bg));
+        color: var(--cwg-current);
+      }
+
+      .state-chip.waiting {
+        border-color: color-mix(in srgb, var(--cwg-waiting) 60%, var(--cwg-card-bg));
+        background: color-mix(in srgb, var(--cwg-waiting) 12%, var(--cwg-card-bg));
+        color: color-mix(in srgb, var(--cwg-waiting) 75%, var(--cwg-text));
+      }
+
+      section {
+        margin-top: 18px;
+      }
+
+      h4 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--cwg-text-muted);
+      }
+
+      .count {
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 9px;
+        box-sizing: border-box;
+        text-align: center;
+        line-height: 18px;
+        font-size: 10px;
+        background: color-mix(in srgb, var(--cwg-text) 10%, var(--cwg-card-bg));
+        color: var(--cwg-text);
+      }
+
+      .muted {
+        color: var(--cwg-text-muted);
+      }
+
+      .task {
+        padding: 12px;
+        margin-bottom: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--cwg-card-border);
+        background: color-mix(in srgb, var(--cwg-text) 3%, var(--cwg-card-bg));
+      }
+
+      .field + .field {
+        margin-top: 10px;
+      }
+
+      .field-label {
+        margin-bottom: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--cwg-text-muted);
+      }
+
+      .field[hidden] {
+        display: none;
+      }
+
+      .actors {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+      }
+
+      .dates {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 20px;
+      }
+
+      .overdue {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 6px;
+        border-radius: 8px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--cwg-color-end);
+        background: color-mix(in srgb, var(--cwg-color-end) 12%, var(--cwg-card-bg));
+      }
+
+      .directive {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .chip {
+        padding: 2px 9px;
+        border-radius: 11px;
+        font-size: 11px;
+        font-weight: 500;
+        border: 1px solid var(--cwg-label-border);
+        color: var(--cwg-text);
+      }
+
+      .link-row {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 100%;
+        margin: 0 0 4px;
+        padding: 8px 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--cwg-text);
+        font: inherit;
+        text-align: start;
+        cursor: pointer;
+      }
+
+      .link-row:hover {
+        border-color: var(--cwg-card-border);
+        background: color-mix(in srgb, var(--cwg-text) 5%, var(--cwg-card-bg));
+      }
+
+      .link-row nuxeo-labs-cwg-icon {
+        flex: 0 0 16px;
+        width: 16px;
+        height: 16px;
+        color: var(--cwg-text-muted);
+      }
+
+      .link-row .chip {
+        flex: 0 1 auto;
+        max-width: 50%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .link-row .chip[hidden] {
+        display: none;
+      }
+
+      .link-target {
+        flex: 1;
+        min-width: 0;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    </style>
+
+    <nuxeo-resource
+      id="graphResource"
+      path="/workflow/[[workflowId]]/graph"
+      headers='{"Content-Type": "application/json"}'
+    ></nuxeo-resource>
+    <nuxeo-resource
+      id="workflowResource"
+      path="/workflow/[[workflowId]]"
+      headers='{"fetch-workflow": "initiator"}'
+    ></nuxeo-resource>
+    <nuxeo-resource
+      id="tasksResource"
+      path="/task"
+      params="[[_taskParams]]"
+      headers='{"fetch-task": "actors"}'
+    ></nuxeo-resource>
+
+    <div id="canvas"></div>
+
+    <div class="loading cwg-theme" hidden$="[[!loading]]" role="status">
+      <div class="spinner"></div>
+      <span>[[_t('customWorkflowGraph.loading', i18n)]]</span>
+    </div>
+
+    <aside
+      id="details"
+      class="details cwg-theme"
+      hidden$="[[!_selection]]"
+      aria-label$="[[_selection.node.title]]"
+    >
+      <div class="details-header">
+        <span class$="kind-icon kind-[[_selection.node.kind]]">
+          <nuxeo-labs-cwg-icon name="[[_selection.node.kind]]"></nuxeo-labs-cwg-icon>
+        </span>
+        <div class="details-titles">
+          <div class="details-kind">[[_kindLabel(_selection.node.kind, i18n)]]</div>
+          <h3 dir="auto">[[_selection.node.title]]</h3>
+        </div>
+        <button
+          class="icon-button"
+          type="button"
+          on-click="clearSelection"
+          title$="[[_t('customWorkflowGraph.details.close', i18n)]]"
+          aria-label$="[[_t('customWorkflowGraph.details.close', i18n)]]"
+        >
+          <nuxeo-labs-cwg-icon name="close"></nuxeo-labs-cwg-icon>
+        </button>
+      </div>
+
+      <div class="details-body">
+        <span class$="state-chip [[_stateKey(_selection.node)]]">[[_stateLabel(_selection.node, i18n)]]</span>
+
+        <template is="dom-if" if="[[_showTasks(_selection)]]" restamp>
+          <section>
+            <h4>
+              <span>[[_t('customWorkflowGraph.details.openTasks', i18n)]]</span>
+              <span class="count" hidden$="[[_tasksLoading]]">[[_nodeTasks.length]]</span>
+            </h4>
+            <template is="dom-if" if="[[_tasksLoading]]">
+              <div class="muted">[[_t('customWorkflowGraph.details.loadingTasks', i18n)]]</div>
+            </template>
+            <template is="dom-if" if="[[_tasksError]]">
+              <div class="muted">[[_t('customWorkflowGraph.details.tasksUnavailable', i18n)]]</div>
+            </template>
+            <template is="dom-if" if="[[_showNoTask(_tasksLoading, _tasksError, _nodeTasks)]]">
+              <div class="muted">[[_t('customWorkflowGraph.details.noOpenTask', i18n)]]</div>
+            </template>
+            <template is="dom-repeat" items="[[_nodeTasks]]" as="task">
+              <div class="task">
+                <div class="field" hidden$="[[!_hasItems(task.actors)]]">
+                  <div class="field-label">[[_t('customWorkflowGraph.details.assignees', i18n)]]</div>
+                  <div class="actors">
+                    <template is="dom-repeat" items="[[_actors(task.actors)]]" as="actor">
+                      <template is="dom-if" if="[[actor.isGroup]]">
+                        <nuxeo-group-tag group="[[actor.value]]" disabled></nuxeo-group-tag>
+                      </template>
+                      <template is="dom-if" if="[[!actor.isGroup]]">
+                        <nuxeo-user-tag user="[[actor.value]]" disabled></nuxeo-user-tag>
+                      </template>
+                    </template>
+                  </div>
+                </div>
+                <div class="field" hidden$="[[!_hasItems(task.delegatedActors)]]">
+                  <div class="field-label">[[_t('customWorkflowGraph.details.delegatedTo', i18n)]]</div>
+                  <div class="actors">
+                    <template is="dom-repeat" items="[[_actors(task.delegatedActors)]]" as="actor">
+                      <template is="dom-if" if="[[actor.isGroup]]">
+                        <nuxeo-group-tag group="[[actor.value]]" disabled></nuxeo-group-tag>
+                      </template>
+                      <template is="dom-if" if="[[!actor.isGroup]]">
+                        <nuxeo-user-tag user="[[actor.value]]" disabled></nuxeo-user-tag>
+                      </template>
+                    </template>
+                  </div>
+                </div>
+                <div class="field dates">
+                  <div hidden$="[[!task.dueDate]]">
+                    <div class="field-label">[[_t('customWorkflowGraph.details.dueDate', i18n)]]</div>
+                    <nuxeo-date datetime="[[task.dueDate]]"></nuxeo-date>
+                    <span class="overdue" hidden$="[[!_isOverdue(task.dueDate)]]"
+                      >[[_t('customWorkflowGraph.details.overdue', i18n)]]</span
+                    >
+                  </div>
+                  <div hidden$="[[!task.created]]">
+                    <div class="field-label">[[_t('customWorkflowGraph.details.created', i18n)]]</div>
+                    <nuxeo-date datetime="[[task.created]]"></nuxeo-date>
+                  </div>
+                </div>
+                <div class="field" hidden$="[[!task.directive]]">
+                  <div class="field-label">[[_t('customWorkflowGraph.details.instructions', i18n)]]</div>
+                  <div class="directive" dir="auto">[[_label(task.directive, i18n)]]</div>
+                </div>
+                <div class="field" hidden$="[[!_hasItems(task.taskInfo.taskActions)]]">
+                  <div class="field-label">[[_t('customWorkflowGraph.details.actions', i18n)]]</div>
+                  <div class="chips">
+                    <template is="dom-repeat" items="[[task.taskInfo.taskActions]]" as="action">
+                      <span class="chip" dir="auto">[[_label(action.label, i18n)]]</span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </section>
+        </template>
+
+        <section>
+          <h4>[[_t('customWorkflowGraph.details.leadsTo', i18n)]]</h4>
+          <template is="dom-repeat" items="[[_selection.outgoing]]">
+            <button class="link-row" type="button" on-click="_goTo">
+              <span class="chip" dir="auto" hidden$="[[!item.edge.label]]" title$="[[item.edge.label]]"
+                >[[item.edge.label]]</span
+              >
+              <nuxeo-labs-cwg-icon name="arrowForward"></nuxeo-labs-cwg-icon>
+              <span class="link-target" dir="auto" title$="[[item.node.title]]">[[item.node.title]]</span>
+            </button>
+          </template>
+          <div class="muted" hidden$="[[_hasItems(_selection.outgoing)]]">
+            [[_t('customWorkflowGraph.details.none', i18n)]]
+          </div>
+        </section>
+
+        <section>
+          <h4>[[_t('customWorkflowGraph.details.comesFrom', i18n)]]</h4>
+          <template is="dom-repeat" items="[[_selection.incoming]]">
+            <button class="link-row" type="button" on-click="_goTo">
+              <nuxeo-labs-cwg-icon name="arrowBack"></nuxeo-labs-cwg-icon>
+              <span class="link-target" dir="auto" title$="[[item.node.title]]">[[item.node.title]]</span>
+              <span class="chip" dir="auto" hidden$="[[!item.edge.label]]" title$="[[item.edge.label]]"
+                >[[item.edge.label]]</span
+              >
+            </button>
+          </template>
+          <div class="muted" hidden$="[[_hasItems(_selection.incoming)]]">
+            [[_t('customWorkflowGraph.details.none', i18n)]]
+          </div>
+        </section>
+      </div>
+    </aside>
+  </template>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const CWG = window.NuxeoLabs.CustomWorkflowGraph;
+      // Width of the details panel + its margins: the renderer keeps the selected node out of it.
+      const DETAILS_INSET = 360;
+
+      // nuxeo-resource rejects with plain objects ({ status, message })
+      function describe(error) {
+        if (error && error.status) {
+          return `${error.status} ${error.message || ''}`.trim();
+        }
+        return error;
+      }
+
+      function errorWith(flags, cause) {
+        const error = cause instanceof Error ? cause : new Error((cause && cause.message) || String(cause));
+        Object.assign(error, flags);
+        if (cause && cause !== error) {
+          error.cause = cause;
+        }
+        return error;
+      }
+
+      Polymer({
+        is: 'nuxeo-labs-custom-workflow-graph-viewer',
+        behaviors: [Nuxeo.I18nBehavior],
+
+        properties: {
+          workflowId: {
+            type: String,
+          },
+
+          // The workflow entity (GET /workflow/{id}), null until loaded or if not readable.
+          workflow: {
+            type: Object,
+            value: null,
+            notify: true,
+          },
+
+          loading: {
+            type: Boolean,
+            value: false,
+            notify: true,
+            reflectToAttribute: true,
+          },
+
+          _taskParams: {
+            type: Object,
+            computed: '_computeTaskParams(workflowId)',
+          },
+
+          _tasks: {
+            type: Array,
+            value() {
+              return [];
+            },
+          },
+
+          _tasksLoading: {
+            type: Boolean,
+            value: false,
+          },
+
+          _tasksError: {
+            type: Boolean,
+            value: false,
+          },
+
+          _selection: {
+            type: Object,
+            value: null,
+          },
+
+          _nodeTasks: {
+            type: Array,
+            computed: '_computeNodeTasks(_selection, _tasks)',
+          },
+        },
+
+        /*
+         * Loads and draws the graph of a workflow instance. Resolves when the graph is drawn (the workflow
+         * and tasks keep loading in the background). Rejects with:
+         *   error.cwgGraphError = true: the graph could not be fetched
+         *   error.cwgFallback = true: the graph was fetched but could not be laid out or drawn
+         * A load replaced by a newer one resolves with { stale: true }.
+         */
+        load(workflowId) {
+          if (workflowId) {
+            this.workflowId = workflowId;
+          }
+          this._loadCount = (this._loadCount || 0) + 1;
+          const loadId = this._loadCount;
+          const isStale = () => loadId !== this._loadCount;
+
+          this.loading = true;
+          this.workflow = null;
+          this._tasks = [];
+          this._tasksError = false;
+          this._tasksLoading = true;
+          this._selection = null;
+
+          let renderer;
+          try {
+            renderer = this._ensureRenderer();
+            renderer.select(null, { silent: true });
+          } catch (e) {
+            this.loading = false;
+            return Promise.reject(errorWith({ cwgFallback: true }, e));
+          }
+
+          this.$.workflowResource
+            .get()
+            .then((workflow) => {
+              if (!isStale()) {
+                this.workflow = workflow && workflow['entity-type'] === 'workflow' ? workflow : null;
+              }
+            })
+            .catch((e) => {
+              if (!isStale()) {
+                console.warn('[nuxeo-labs-custom-workflow-graph] Cannot read the workflow:', describe(e));
+              }
+            });
+
+          this.$.tasksResource
+            .get()
+            .then((response) => {
+              if (!isStale()) {
+                this._tasks = (response && Array.isArray(response.entries) && response.entries) || [];
+              }
+            })
+            .catch((e) => {
+              if (!isStale()) {
+                console.warn('[nuxeo-labs-custom-workflow-graph] Cannot read the tasks:', describe(e));
+                this._tasksError = true;
+              }
+            })
+            .then(() => {
+              if (!isStale()) {
+                this._tasksLoading = false;
+              }
+            });
+
+          return Promise.all([this.$.graphResource.get(), CWG.fontsReady()])
+            .catch((e) => {
+              throw errorWith({ cwgGraphError: true }, e);
+            })
+            .then(([graph]) => {
+              if (isStale()) {
+                return { stale: true };
+              }
+              if (!graph || !Array.isArray(graph.nodes)) {
+                throw errorWith({ cwgGraphError: true }, new Error('Invalid workflow graph response'));
+              }
+              try {
+                renderer.setGraph(graph);
+              } catch (e) {
+                throw errorWith({ cwgFallback: true }, e);
+              }
+              return { stale: false };
+            })
+            .then(
+              (result) => {
+                if (!isStale()) {
+                  this.loading = false;
+                }
+                return result;
+              },
+              (error) => {
+                if (isStale()) {
+                  return { stale: true };
+                }
+                this.loading = false;
+                throw error;
+              },
+            );
+        },
+
+        // Clears the selection. Returns true if a step was selected.
+        clearSelection() {
+          if (!this._renderer || !this._selection) {
+            return false;
+          }
+          this._renderer.select(null);
+          return true;
+        },
+
+        // Gives the keyboard focus to the graph (shortcuts work right away).
+        focusCanvas() {
+          const viewport = this.$.canvas.querySelector('.cwg-viewport');
+          if (viewport) {
+            viewport.focus({ preventScroll: true });
+          }
+        },
+
+        _ensureRenderer() {
+          if (!this._renderer) {
+            this._renderer = new CWG.Renderer(this.$.canvas, {
+              selectionInset: DETAILS_INSET,
+              onSelect: (selection) => {
+                this._selection = selection;
+              },
+            });
+          }
+          return this._renderer;
+        },
+
+        _goTo(e) {
+          const item = e.model && e.model.item;
+          if (item && item.node && this._renderer) {
+            this._renderer.focusNode(item.node.id);
+          }
+        },
+
+        _computeTaskParams(workflowId) {
+          return { workflowInstanceId: workflowId, pageSize: 100 };
+        },
+
+        _computeNodeTasks(selection, tasks) {
+          if (!selection || !selection.node || !Array.isArray(tasks)) {
+            return [];
+          }
+          return tasks.filter((t) => t && t.nodeName === selection.node.id);
+        },
+
+        _showTasks(selection) {
+          return !!(selection && selection.node && selection.node.isCurrent && selection.node.kind !== 'subWorkflow');
+        },
+
+        _showNoTask(loading, error, tasks) {
+          return !loading && !error && !(tasks && tasks.length);
+        },
+
+        // Task actors, fetched (user/group entities) or not ("user:jdoe", "group:members", {id: ...}).
+        _actors(actors) {
+          return (actors || []).map((actor) => {
+            let value = actor;
+            if (actor && typeof actor === 'object' && !actor['entity-type'] && actor.id) {
+              value = String(actor.id);
+            }
+            const isGroup =
+              typeof value === 'string'
+                ? value.indexOf('group:') === 0
+                : !!(value && value['entity-type'] === 'group');
+            return { value, isGroup };
+          });
+        },
+
+        _hasItems(list) {
+          return !!(list && list.length);
+        },
+
+        _isOverdue(date) {
+          const time = date ? new Date(date).getTime() : NaN;
+          return Number.isFinite(time) && time < Date.now();
+        },
+
+        _t(key) {
+          return CWG.t(key);
+        },
+
+        _label(label) {
+          return CWG.translateLabel(label);
+        },
+
+        _kindLabel(kind) {
+          return kind ? CWG.kindLabel(kind) : '';
+        },
+
+        _stateKey(node) {
+          return node ? CWG.nodeStateKey(node) : '';
+        },
+
+        _stateLabel(node) {
+          return node ? CWG.t(`customWorkflowGraph.stateLong.${CWG.nodeStateKey(node)}`) : '';
+        },
+      });
+    })();
+  </script>
+</dom-module>

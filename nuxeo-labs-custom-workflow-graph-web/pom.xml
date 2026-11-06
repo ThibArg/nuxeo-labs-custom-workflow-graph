@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>nuxeo.labs.customworkflowgraph</groupId>
+    <artifactId>nuxeo-labs-custom-workflow-graph-parent</artifactId>
+    <version>2025.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>nuxeo-labs-custom-workflow-graph-web</artifactId>
+  <name>Nuxeo Labs Custom Workflow Graph - Web</name>
+  <description>
+    Web UI resources only (no Java): replaces the jsPlumb "View Graph" dialog of Nuxeo Web UI with a
+    modern viewer whose layout engine is pluggable (automatic layout first, Studio coordinates later).
+  </description>
+</project>

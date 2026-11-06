@@ -1,0 +1,300 @@
+<!--
+(C) Copyright 2026 Hyland (http://hyland.com/) and others.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Contributors:
+    Thibaud Arguillere
+-->
+
+<!--
+  `nuxeo-labs-custom-workflow-graph-dialog`: large dialog showing the workflow header (title, state,
+  initiator) and the graph viewer. Created by cwg-override.js inside Web UI's nuxeo-workflow-graph element,
+  where the default dialog lives, so it behaves the same way (stacking, notifications, theme).
+
+    dialog.open(workflowId) returns a promise, see the viewer's load() for the rejection cases.
+
+  Keyboard: the key events are not propagated outside of the dialog (Web UI global shortcuts such as "d",
+  "m" or "c" must not fire while the graph has the focus), except Tab (focus trap). Escape first clears the
+  selected step, then closes the dialog.
+
+  @since 2025.1
+-->
+<dom-module id="nuxeo-labs-custom-workflow-graph-dialog">
+  <template>
+    <style>
+      :host {
+        display: block;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      #dialog {
+        width: min(1680px, 94vw);
+        height: 90vh;
+        max-width: none;
+        max-height: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-radius: 14px;
+        background: var(--nuxeo-box, #fff);
+        color: var(--nuxeo-text-default, #3a3a54);
+      }
+
+      .body {
+        flex: 1;
+        min-height: 0;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: flex;
+        flex-direction: column;
+        font-family: var(--nuxeo-app-font, Inter, Arial, sans-serif);
+      }
+
+      .header {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 14px 14px 24px;
+        border-bottom: 1px solid color-mix(in srgb, var(--nuxeo-text-default, #3a3a54) 12%, transparent);
+      }
+
+      .titles {
+        flex: 1;
+        min-width: 0;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 14px;
+        margin-top: 4px;
+        font-size: 12px;
+        color: color-mix(in srgb, var(--nuxeo-text-default, #3a3a54) 70%, transparent);
+      }
+
+      .meta:empty {
+        display: none;
+      }
+
+      .workflow-state {
+        height: 20px;
+        padding: 0 8px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--nuxeo-text-default, #3a3a54);
+        background: color-mix(in srgb, var(--nuxeo-text-default, #3a3a54) 10%, transparent);
+      }
+
+      .workflow-state.running {
+        color: #1f9d63;
+        background: color-mix(in srgb, #1f9d63 14%, transparent);
+      }
+
+      .workflow-state[hidden],
+      .initiator[hidden] {
+        display: none;
+      }
+
+      .initiator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .close {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: 0 0 40px;
+        width: 40px;
+        height: 40px;
+        margin: 0;
+        padding: 9px;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--nuxeo-text-default, #3a3a54);
+        cursor: pointer;
+      }
+
+      .close:hover {
+        background: color-mix(in srgb, var(--nuxeo-text-default, #3a3a54) 9%, transparent);
+      }
+
+      .close:focus-visible {
+        outline: 2px solid var(--nuxeo-focus-ring-color, var(--nuxeo-primary-color, #0066ff));
+        outline-offset: 1px;
+      }
+
+      nuxeo-labs-cwg-icon {
+        display: block;
+        width: 22px;
+        height: 22px;
+      }
+
+      #viewer {
+        flex: 1;
+        min-height: 0;
+      }
+    </style>
+
+    <nuxeo-dialog
+      id="dialog"
+      with-backdrop
+      no-cancel-on-outside-click
+      no-cancel-on-esc-key
+      aria-labelledby="title"
+      on-iron-overlay-opened="_onOpened"
+    >
+      <div class="body">
+        <div class="header">
+          <div class="titles">
+            <h2 id="title" dir="auto">[[_title(workflow, i18n)]]</h2>
+            <div class="meta">
+              <span class$="workflow-state [[workflow.state]]" hidden$="[[!workflow.state]]"
+                >[[_workflowState(workflow.state, i18n)]]</span
+              >
+              <span class="initiator" hidden$="[[!workflow.initiator]]">
+                <span>[[_t('customWorkflowGraph.dialog.startedBy', i18n)]]</span>
+                <nuxeo-user-tag user="[[workflow.initiator]]" disabled></nuxeo-user-tag>
+              </span>
+            </div>
+          </div>
+          <button
+            class="close"
+            type="button"
+            on-click="close"
+            title$="[[_t('customWorkflowGraph.dialog.close', i18n)]]"
+            aria-label$="[[_t('customWorkflowGraph.dialog.close', i18n)]]"
+          >
+            <nuxeo-labs-cwg-icon name="close"></nuxeo-labs-cwg-icon>
+          </button>
+        </div>
+        <nuxeo-labs-custom-workflow-graph-viewer
+          id="viewer"
+          workflow="{{workflow}}"
+        ></nuxeo-labs-custom-workflow-graph-viewer>
+      </div>
+    </nuxeo-dialog>
+  </template>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const CWG = window.NuxeoLabs.CustomWorkflowGraph;
+
+      Polymer({
+        is: 'nuxeo-labs-custom-workflow-graph-dialog',
+        behaviors: [Nuxeo.I18nBehavior, Nuxeo.NotifyBehavior],
+
+        properties: {
+          workflowId: {
+            type: String,
+          },
+
+          workflow: {
+            type: Object,
+            value: null,
+          },
+        },
+
+        ready() {
+          this.$.dialog.addEventListener('keydown', (e) => this._onKeyDown(e));
+        },
+
+        // Opens the dialog and loads the graph. When the graph cannot be fetched, closes the dialog and shows
+        // the same message as Web UI's default graph. When it cannot be drawn, closes the dialog and rejects
+        // with error.cwgFallback, so the caller can open the default graph instead.
+        open(workflowId) {
+          this.workflowId = workflowId;
+          const dialog = this.$.dialog;
+          if (!dialog.opened) {
+            dialog.open();
+          }
+          return this.$.viewer.load(workflowId).catch((error) => {
+            dialog.close();
+            if (!error || !error.cwgFallback) {
+              this.notify({ message: this.i18n('documentPage.route.view.graph.error') });
+            }
+            throw error;
+          });
+        },
+
+        close() {
+          this.$.dialog.close();
+        },
+
+        _onOpened(e) {
+          // ignore the events of nested overlays (dropdowns, tooltips)
+          if (e.target === this.$.dialog) {
+            this.$.viewer.focusCanvas();
+          }
+        },
+
+        _onKeyDown(e) {
+          if (e.key === 'Tab') {
+            return;
+          }
+          e.stopPropagation();
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            if (!this.$.viewer.clearSelection()) {
+              this.close();
+            }
+          }
+        },
+
+        _title(workflow) {
+          const title = workflow && CWG.translateLabel(workflow.title || workflow.name);
+          return title || CWG.t('customWorkflowGraph.dialog.defaultTitle');
+        },
+
+        _workflowState(state) {
+          if (!state) {
+            return '';
+          }
+          const key = `customWorkflowGraph.workflowState.${state}`;
+          const label = CWG.t(key);
+          return label === key ? state : label;
+        },
+
+        _t(key) {
+          return CWG.t(key);
+        },
+      });
+    })();
+  </script>
+</dom-module>

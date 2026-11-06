@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: nuxeo-labs-custom-workflow-graph-web
+Bundle-SymbolicName: nuxeo.labs.customworkflowgraph.nuxeo-labs-custom-workflow-graph-web;singleton=true
+Bundle-Version: 2025.1.0
+Bundle-Vendor: nuxeo.labs.customworkflowgraph
+Bundle-ActivationPolicy: lazy
+Bundle-ClassPath: .
+Nuxeo-Component: OSGI-INF/cwg-properties-contrib.xml,
+ OSGI-INF/cwg-webresources-contrib.xml

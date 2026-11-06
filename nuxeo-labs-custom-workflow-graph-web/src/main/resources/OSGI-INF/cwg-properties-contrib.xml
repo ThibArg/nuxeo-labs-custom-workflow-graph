@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component name="nuxeo.labs.customworkflowgraph.properties">
+
+  <documentation>
+    Settings of the custom workflow graph. Properties prefixed with "org.nuxeo.web.ui" are exposed
+    to Web UI as Nuxeo.UI.config (see config.jsp), here under Nuxeo.UI.config.customWorkflowGraph.
+
+    To change a value, contribute the same property from Studio (Configuration > XML Extensions) or
+    from another bundle, and add
+      &lt;require&gt;nuxeo.labs.customworkflowgraph.properties&lt;/require&gt;
+    to the component so it is deployed after this one.
+
+    @since 2025.1
+  </documentation>
+
+  <extension target="org.nuxeo.runtime.ConfigurationService" point="configuration">
+    <!--
+      true: "View Graph" opens the custom viewer.
+      false: Web UI's default (jsPlumb) graph is used, as if the plugin was not installed.
+      Read each time a graph is opened, no rebuild needed.
+    -->
+    <property name="org.nuxeo.web.ui.customWorkflowGraph.enabled">true</property>
+
+    <!--
+      Name of the layout used when the dialog opens:
+        "auto"    automatic layered layout (top to bottom or left to right)
+        "studio"  positions and transition paths drawn in Nuxeo Studio, adapted to the bigger cards
+                  (falls back to "auto" when the Studio positions cannot be used)
+      An unknown name falls back to "auto".
+    -->
+    <property name="org.nuxeo.web.ui.customWorkflowGraph.layout">auto</property>
+
+    <!-- Default direction of the automatic layout: TB (top to bottom) or LR (left to right). -->
+    <property name="org.nuxeo.web.ui.customWorkflowGraph.direction">TB</property>
+
+    <!--
+      true: the toolbar shows a layout selector (Automatic / Studio), the choice is kept for the page session.
+      false: only the layout set above is used.
+    -->
+    <property name="org.nuxeo.web.ui.customWorkflowGraph.allowLayoutSwitch">true</property>
+  </extension>
+
+</component>
