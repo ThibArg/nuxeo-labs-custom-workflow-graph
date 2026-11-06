@@ -1,5 +1,11 @@
 # Nuxeo Labs Custom Workflow Graph
 
+> [!IMPORTANT]
+> This plugin is **Work in Progress**. A start at having more modern workflow graph, with interactive/visual effects
+> 
+> It is not released on the marketplace. You can instead use [nuxeo-labs-workflow-graph](https://github/nuxeo-sandbox/nuxeo-labs-workflow-graph),
+> that displays a modern graph, with no user interaction, no "switch to Studio coordinates", etc.
+
 A modern replacement for the **"View Graph"** dialog of Nuxeo Web UI (Nuxeo LTS 2025): the graph of a running
 workflow is laid out automatically (or as drawn in Nuxeo Studio), drawn with themed cards and smooth transitions,
 highlights the current step(s) and the transitions that can follow, and shows the open tasks of the current step
