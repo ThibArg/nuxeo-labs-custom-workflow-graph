@@ -153,11 +153,17 @@
     'customWorkflowGraph.details.loadingTasks': 'Loading the tasks…',
   };
 
+  /*
+   * Web UI's translate() reads a plain object (window.nuxeo.I18n[language][key]): a key named like an
+   * Object.prototype member ("constructor", "toString"...) returns that member, e.g. a function. Only
+   * strings are accepted as translations, anything else is treated as "no translation".
+   */
   function rawTranslate(key) {
     const i18n = root.nuxeo && root.nuxeo.I18n;
     if (i18n && typeof i18n.translate === 'function') {
       try {
-        return i18n.translate(key);
+        const value = i18n.translate(key);
+        return typeof value === 'string' ? value : key;
       } catch (e) {
         return key;
       }
@@ -455,6 +461,16 @@
     return kind === 'start' || kind === 'end';
   };
 
+  /*
+   * True when a node id is also the name of an Object.prototype member ("__proto__", "constructor",
+   * "toString", "hasOwnProperty", ...). The layouts and dagre key plain objects by node id, so such an id
+   * would break the layout and, for "__proto__", alter Object.prototype of the whole Web UI page. Studio
+   * never generates these ids; only a hand-written workflow model can contain one.
+   */
+  CWG.isReservedNodeId = function (id) {
+    return String(id) in Object.prototype;
+  };
+
   function toNumber(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : 0;
@@ -511,6 +527,9 @@
    * }
    * Nodes are sorted by their Studio position (top to bottom, then left to right) so the automatic layout
    * starts from the order chosen by the designer.
+   *
+   * Throws when a node id is a reserved name (see CWG.isReservedNodeId): the renderer then fails and the
+   * viewer falls back to Web UI's default graph.
    */
   CWG.buildModel = function (graph, options) {
     const opts = options || {};
@@ -528,6 +547,9 @@
         return;
       }
       const id = String(raw.id);
+      if (CWG.isReservedNodeId(id)) {
+        throw new Error(`Node id "${id}" is a reserved name, the custom graph cannot draw this workflow`);
+      }
       if (byId.has(id)) {
         warnings.push(`Duplicate node id ${id}, ignored`);
         return;

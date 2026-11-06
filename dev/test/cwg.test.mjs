@@ -121,6 +121,29 @@ test('translations: Web UI bundle first, then English fallback, then key', () =>
   assert.equal(C.translateLabel(null), '');
 });
 
+test('translations: labels named like Object.prototype members are kept as is', () => {
+  // Same lookup as nuxeo-elements' translate(): a plain object indexed by the key.
+  const c = load({
+    nuxeo: {
+      I18n: {
+        language: 'en',
+        en: { 'wf.title': 'My workflow' },
+        translate(key) {
+          return (this[this.language] && this[this.language][key]) || key;
+        },
+      },
+    },
+  });
+  const C = c.NuxeoLabs.CustomWorkflowGraph;
+  ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'].forEach((label) => {
+    assert.equal(C.translateLabel(label), label, label);
+  });
+  assert.equal(C.translateLabel('wf.title'), 'My workflow');
+  assert.equal(C.t('customWorkflowGraph.kind.step'), 'Step');
+  const model = C.buildModel({ nodes: [{ id: 'a', title: 'constructor' }], transitions: [] });
+  assert.equal(model.nodes[0].title, 'constructor');
+});
+
 test('wrapText: respects width and line count, adds an ellipsis', () => {
   const measure = (s) => s.length * 7;
   const r = CWG.wrapText('one two three four five six seven eight nine ten eleven twelve', 70, 3, measure);
@@ -166,6 +189,43 @@ test('buildModel: kinds, states, order, sizes and invalid transitions', () => {
   assert.equal(broken.edges.length, 0);
   assert.equal(broken.warnings.length, 3);
   assert.equal(CWG.buildModel(null).nodes.length, 0);
+});
+
+test('buildModel: node ids that are Object.prototype members are rejected', () => {
+  // A fresh context, so a regression cannot pollute the shared one.
+  const c = load();
+  const C = c.NuxeoLabs.CustomWorkflowGraph;
+  const protoKeys = () => vm.runInContext('Object.getOwnPropertyNames(Object.prototype).sort().join()', c);
+  const enumerableKeys = () => vm.runInContext('Object.keys({}).concat(Object.keys(Object)).join()', c);
+  const before = protoKeys();
+  const graph = (id) => ({
+    nodes: [
+      { id: 'start', title: 'Start', isStartNode: true },
+      { id, title: 'Step' },
+      { id: 'end', title: 'End', isEndNode: true },
+    ],
+    transitions: [
+      { nodeSourceId: 'start', nodeTargetId: id, label: '' },
+      { nodeSourceId: id, nodeTargetId: 'end', label: '' },
+    ],
+  });
+  ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf'].forEach((id) => {
+    assert.equal(C.isReservedNodeId(id), true, id);
+    assert.throws(() => C.buildModel(graph(id)), /reserved name/, id);
+  });
+  assert.equal(protoKeys(), before, 'Object.prototype unchanged');
+  assert.equal(enumerableKeys(), '', 'no key inherited by plain objects');
+
+  // Close but not reserved: drawn normally, by both layouts.
+  ['__proto', 'proto', 'Constructor', 'toString ', 'Task375f'].forEach((id) => {
+    assert.equal(C.isReservedNodeId(id), false, id);
+    const model = C.buildModel(graph(id));
+    assert.equal(model.nodes.length, 3, id);
+    ['auto', 'studio'].forEach((name) => {
+      const layout = C.getLayout(name).compute(model, { direction: 'TB' });
+      assert.ok(Number.isFinite(layout.nodes[id].x), `${name} ${id}`);
+    });
+  });
 });
 
 test('layout registry', () => {

@@ -41,7 +41,8 @@ highlights the current step(s) and the transitions that can follow, and shows th
 - **Header**: workflow title, state, initiator.
 - **Themes**: follows the Web UI theme (default, dark, Hyland light and dark); every color can be overridden.
 - **Translations**: English and French; labels coming from the workflow definition are translated as in Web UI.
-- **Safe**: if the plugin is disabled or the custom graph cannot be drawn, Web UI's default graph is opened.
+- **Safe**: if the plugin is disabled or the custom graph cannot be drawn, Web UI's default graph is opened (see
+  [When Web UI's default graph is used](#when-web-uis-default-graph-is-used)).
 
 ## How it works (front end only)
 
@@ -74,6 +75,28 @@ These need data that the graph endpoint does not provide, and would require a se
   the `ready` state after it runs).
 - The path actually followed is not shown (the engine does not keep the history of the transitions taken).
 - Automation-only steps look like steps with a task (the graph does not tell whether a node has a task).
+
+### When Web UI's default graph is used
+
+"View Graph" opens Web UI's default graph instead of the custom one, as if the plugin was not installed, when:
+
+- `org.nuxeo.web.ui.customWorkflowGraph.enabled` is `false` (see [Configuration](#configuration));
+- the custom graph cannot be drawn (layout or rendering error);
+- a node id is a reserved name, i.e. the name of a member of JavaScript's `Object.prototype`: `__proto__`,
+  `constructor`, `toString`, `valueOf`, `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable`,
+  `toLocaleString`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`. The layouts
+  use node ids as object keys: such an id would break them and, for `__proto__`, alter every object of the Web UI
+  page. The workflow is therefore rejected before any layout runs. Nuxeo Studio never generates these ids (its
+  node ids look like `<workflow id>-<yyyyMMddHHmmssSSS>-<type>`); only a hand-written workflow model can contain
+  one. Renaming the node is enough to get the custom graph.
+
+In the last two cases a warning with the reason is written in the browser console, prefixed with
+`[nuxeo-labs-custom-workflow-graph]`, for example:
+
+```
+[nuxeo-labs-custom-workflow-graph] The custom graph cannot be drawn, using the default graph
+Error: Node id "__proto__" is a reserved name, the custom graph cannot draw this workflow
+```
 
 ## Installation
 
@@ -243,10 +266,10 @@ The `dev/` folder is not packaged. Nothing is installed by the project: the brow
 
 | Command | What it does |
 | --- | --- |
-| `node --test dev/test` | Unit tests (core, geometry, auto and studio layouts on the sample workflows: no overlapping nodes or labels, edges attached to their nodes, Studio coordinates and paths, fallback...). Node 20+, no dependency |
+| `node --test dev/test` | Unit tests (core, geometry, auto and studio layouts on the sample workflows: no overlapping nodes or labels, edges attached to their nodes, Studio coordinates and paths, fallback, reserved node ids...). Node 20+, no dependency |
 | `python3 -m http.server 8765` then `http://localhost:8765/dev/demo/index.html` | Demo of the renderer with the sample workflows, layouts, themes, directions and languages (URL parameters: `wf`, `layout`, `theme`, `dir`, `lang`, `select`) |
 | `node dev/tools/screenshots.mjs [filter]` | Renders every demo case (both layouts) in headless Chrome, fails on console errors or on a fallback of the studio layout, writes `dev/out/demo/*.png` |
-| `node dev/tools/harness.mjs` | Integration test of the Web UI part without Nuxeo: real Polymer, nuxeo-elements and HTML Imports polyfill, the bundle loaded through `importHref` before `nuxeo-workflow-graph` is defined (as in Web UI), mocked REST API. Checks both "View Graph" entry points, the details panel, keyboard isolation, Escape, errors, permissions, the studio layout and the layout selector, the `enabled` switch and the fallback |
+| `node dev/tools/harness.mjs` | Integration test of the Web UI part without Nuxeo: real Polymer, nuxeo-elements and HTML Imports polyfill, the bundle loaded through `importHref` before `nuxeo-workflow-graph` is defined (as in Web UI), mocked REST API. Checks both "View Graph" entry points, the details panel, keyboard isolation, Escape, errors, permissions, the studio layout and the layout selector, the `enabled` switch and the fallback (layout failure, reserved node id) |
 
 Environment variables of the browser tools:
 

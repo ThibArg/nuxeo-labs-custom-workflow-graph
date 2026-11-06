@@ -83,6 +83,19 @@ Object.values(samples).forEach((s) => {
 byId['wf-noaccess'] = Object.assign({}, samples.contract, { id: 'wf-noaccess', noAccess: true });
 byId['wf-broken'] = Object.assign({}, samples.serial, { id: 'wf-broken' });
 byId['wf-studio'] = Object.assign({}, samples.serial, { id: 'wf-studio' });
+// Serial Document Review whose first step is renamed "__proto__" (reserved node id, see CWG.isReservedNodeId).
+byId['wf-reserved'] = (() => {
+  const g = samples.serial.graph;
+  const step = g.nodes.find((n) => !n.isStartNode && !n.isEndNode).id;
+  const rename = (id) => (id === step ? '__proto__' : id);
+  const graph = Object.assign({}, g, {
+    nodes: g.nodes.map((n) => Object.assign({}, n, { id: rename(n.id) })),
+    transitions: g.transitions.map((t) =>
+      Object.assign({}, t, { nodeSourceId: rename(t.nodeSourceId), nodeTargetId: rename(t.nodeTargetId) }),
+    ),
+  });
+  return Object.assign({}, samples.serial, { id: 'wf-reserved', graph });
+})();
 
 function json(status, body) {
   return { status, contentType: 'application/json', body: JSON.stringify(body) };
@@ -597,6 +610,30 @@ async function main() {
         h.graphElement('wf-broken').$.graphDialog.close();
         Nuxeo.UI.config.customWorkflowGraph.layout = 'auto';
       });
+    });
+
+    await scenario('reserved node id "__proto__": default graph, Object.prototype untouched', async () => {
+      const start = mark();
+      await page.evaluate(() => h.mountInfoBar(['wf-reserved']));
+      const before = await page.evaluate(() => window.harness.classicShown);
+      const link = await page.evaluateHandle(() => h.link('wf-reserved'));
+      await link.click();
+      await page.waitForFunction((n) => window.harness.classicShown === n + 1, { timeout: 5000 }, before);
+      await sleep(300);
+      assert.equal(await page.evaluate(() => h.isOpen('wf-reserved')), false);
+      const inherited = await page.evaluate(() => {
+        const keys = [];
+        for (const k in {}) {
+          keys.push(k);
+        }
+        return keys;
+      });
+      assert.deepEqual(inherited, [], 'no key added to Object.prototype');
+      assert.ok(
+        since(start).some((m) => m.type === 'warn' && /default graph/.test(m.text)),
+        'a warning explains the fallback',
+      );
+      await page.evaluate(() => h.graphElement('wf-reserved').$.graphDialog.close());
     });
   } finally {
     const errors = consoleMessages.filter((m) => m.type === 'error' || m.type === 'pageerror');
