@@ -14,7 +14,7 @@
  * limitations under the License.
  *
  * Contributors:
- *     Thibaud Arguillere
+ *     Thibaud Arguillere (with the help of opencode/Claude Opus 5.5)
  */
 
 // Inline SVG icons (Material Icons by Google, Apache License 2.0), so the viewer does not depend on the

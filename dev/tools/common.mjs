@@ -14,7 +14,7 @@
  * limitations under the License.
  *
  * Contributors:
- *     Thibaud Arguillere
+ *     Thibaud Arguillere (with the help of opencode/Claude Opus 5.5)
  */
 
 /*
